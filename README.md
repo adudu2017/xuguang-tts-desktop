@@ -27,6 +27,38 @@ python -m venv .venv
 
 首次运行没有预设音色或模型路径。点击“设置”配置引擎，再通过“制作音色”录制或导入你有权使用的录音。源代码不包含私人音色、任务历史、模型权重、已生成音频或运行环境。
 
+## 模型权重下载（中国大陆优先：ModelScope 魔搭）
+
+模型权重不包含在 GitHub 仓库中。以下下载统一使用 **ModelScope 魔搭**，不需要从 Hugging Face 下载，也不会在失败时自动切换到 Hugging Face。
+
+| 用途 | ModelScope 下载页面 | 本地保存目录 |
+|---|---|---|
+| Qwen 音色克隆 | [Qwen3-TTS-12Hz-0.6B-Base](https://modelscope.cn/models/Qwen/Qwen3-TTS-12Hz-0.6B-Base) | models/Qwen3-TTS-12Hz-0.6B-Base |
+| Ming 语音合成 | [Ming-3.0-tts-0.5b](https://modelscope.cn/models/inclusionAI/Ming-3.0-tts-0.5b) | models/Ming-3.0-tts-0.5b |
+| 英文字幕译中文 | [opus-mt-en-zh](https://modelscope.cn/models/Helsinki-NLP/opus-mt-en-zh) | models/opus-mt-en-zh |
+
+先安装下载工具（可用清华 PyPI 镜像）：
+
+```powershell
+python -m pip install modelscope -i https://pypi.tuna.tsinghua.edu.cn/simple
+python download-models.py All --list
+python download-models.py All
+```
+
+也可分别下载：
+
+```powershell
+python download-models.py Qwen
+python download-models.py Ming
+python download-models.py Translation
+```
+
+第二个位置参数可指定模型总目录，例如 `python download-models.py All D:/AI/models`；程序会在其中建立各模型子目录。若使用打包版，字幕翻译模型必须放到 EXE 同目录的 `models/opus-mt-en-zh`。TTS 模型路径可在设置中选择。
+
+请下载完整仓库，不能只下载顶层权重：Qwen 需要 `speech_tokenizer/`，Ming 需要 `campplus.onnx` 和 tokenizer 文件，翻译需要 `source.spm`、`target.spm` 等文件。下载脚本会保留必要文件，仅跳过翻译模型不使用的 TensorFlow、Flax 和 Rust 权重。
+
+2026-10-24 已验证上述 ModelScope 仓库文件列表及 config.json 可访问；实际速度取决于网络。本次没有重新下载数 GB 权重。下载完成后推理读取本地模型。安装 Python 依赖、PyTorch 和 Ming 源码仍分别涉及包源、PyTorch 官网及 GitHub，这与模型权重下载来源不同。
+
 ## 模型环境
 
 ```powershell
@@ -47,11 +79,11 @@ Ming 固定源码版本 `028c1eace193e7acdb256453da89b6e9207e052b`。Ming 的本
 
 ## 字幕翻译和视频
 
-中文翻译使用本地 `Helsinki-NLP/opus-mt-en-zh` 模型，放到 `models/opus-mt-en-zh`，在 Ming 环境安装 sentencepiece、sacremoses 和 huggingface_hub 后下载：
+中文翻译使用本地 Marian `opus-mt-en-zh` 模型，从上表的 ModelScope 仓库下载，放到 `models/opus-mt-en-zh`。在 Ming 环境安装所需依赖并下载：
 
 ```powershell
-runtime/ming/Scripts/python -m pip install sentencepiece sacremoses huggingface_hub
-runtime/ming/Scripts/python -c "from huggingface_hub import snapshot_download; snapshot_download('Helsinki-NLP/opus-mt-en-zh', local_dir='models/opus-mt-en-zh')"
+runtime/ming/Scripts/python -m pip install sentencepiece sacremoses modelscope -i https://pypi.tuna.tsinghua.edu.cn/simple
+runtime/ming/Scripts/python download-models.py Translation
 ```
 
 MP4 导出需要带 libass、libx264 的 FFmpeg，放到 `tools/ffmpeg.exe` 或配置在 PATH。中文使用 Windows 微软雅黑字体。字幕时间轴按合成分段，不是逐词对齐。若未安装翻译模型，音频保留，系统提示中文字幕失败。
