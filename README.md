@@ -110,3 +110,19 @@ python -m unittest discover -s . -p 'test_*.py'
 - [FFmpeg](https://ffmpeg.org/)
 
 第三方模型、运行库和工具遵循各自许可，未在此仓库分发其模型或二进制文件。本仓库尚未指定开源许可证。
+
+### 中文字幕选项
+
+输出语言选择中文时，可选择「仅中文字幕」（默认）、「中英双语字幕」或「不生成字幕」。英文输出仍自动生成英中双语字幕。选择不生成字幕时，保存音频及原文 TXT，不生成 SRT/时间轴字幕，也不提供字幕视频导出。历史任务保留各自的字幕设置。
+
+中译英使用独立的本地模型 [Helsinki-NLP/opus-mt-zh-en](https://modelscope.cn/models/Helsinki-NLP/opus-mt-zh-en)，通过 ModelScope 下载：
+
+```powershell
+python download-models.py TranslationZH
+```
+
+模型保存到 `models/opus-mt-zh-en`，安装后翻译可离线运行。`All` 同时包含两个方向的翻译模型。缺少模型或翻译失败时保留音频及原文字幕，并显示提示。
+
+### 字幕质量保护
+
+生成前检查稿件主要语言与输出语言是否匹配；输出语言不会自动翻译朗读稿件。字幕翻译根据每段原文判断中英方向，语言不明确时才使用任务语言。仅标点、异常连续重复、错误目标语言或达到长度上限的译文会触发一次短分段重试，失败后保留原文并记录 `complete.translation-report.json`。音频保存和 MP4 导出也会拦截明显异常的历史译文。这些规则只检查明显异常，不代表译文语义已经人工校对。

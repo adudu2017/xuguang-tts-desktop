@@ -74,6 +74,7 @@ class App(tk.Tk):
         self.logs = []
         self.reference = tk.StringVar(value=self.config_values.get('reference_wav', ''))
         self.language = tk.StringVar(value='英文' if self.config_values.get('output_language') == 'English' else '中文')
+        self.subtitle_mode = tk.StringVar(value=self.config_values.get('chinese_subtitles', '仅中文字幕'))
         self.voice_choice = tk.StringVar(value='自定义录音')
         self.voice_window = None
         self.video_window = None
@@ -114,6 +115,13 @@ class App(tk.Tk):
         self.engine_combo.pack(side='left')
         Button(row, text='示例故事', command=self.sample).pack(side='right')
         Button(row, text='导入文字', command=self.import_text).pack(side='right', padx=8)
+        self.subtitle_row = ttk.Frame(shell)
+        self.subtitle_row.pack(fill='x', pady=(8, 0))
+        ttk.Label(self.subtitle_row, text='中文字幕', foreground=T.MUTED).pack(side='left')
+        self.subtitle_combo = ComboBox(self.subtitle_row, textvariable=self.subtitle_mode, values=['仅中文字幕', '中英双语字幕', '不生成字幕'], state='readonly', width=14)
+        self.subtitle_combo.pack(side='left', padx=10)
+        self.language.trace_add('write', lambda *_: self.subtitle_combo.configure(state='readonly' if self.language.get() == '中文' else 'disabled'))
+        self.subtitle_combo.configure(state='readonly' if self.language.get() == '中文' else 'disabled')
         self.text = self.editor(shell, 4)
         self.text.pack(fill='both', expand=True, pady=(8, 16))
         self.text.bind('<<Modified>>', self.text_changed)
@@ -293,7 +301,7 @@ class App(tk.Tk):
         Button(frame, text='保存', command=save).grid(row=6, column=2)
 
     def persist(self):
-        self.config_values.update(voice_id=self.voices[self.voice_choice.get()][0].name if self.voice_choice.get() in self.voices else None, output_language='English' if self.language.get() == '英文' else 'Chinese', default_engine=ENGINE_LABELS[self.engine_choice.get()], reference_wav=self.reference.get(), reference_text=self.transcript.get('1.0', 'end').strip())
+        self.config_values.update(chinese_subtitles=self.subtitle_mode.get(), voice_id=self.voices[self.voice_choice.get()][0].name if self.voice_choice.get() in self.voices else None, output_language='English' if self.language.get() == '英文' else 'Chinese', default_engine=ENGINE_LABELS[self.engine_choice.get()], reference_wav=self.reference.get(), reference_text=self.transcript.get('1.0', 'end').strip())
         core.write_json(SETTINGS, self.config_values)
 
     def start(self):
@@ -384,9 +392,9 @@ class App(tk.Tk):
             self.output_text, self.output_cues = '', []
         self.player.load(self.output, self.output_text, self.output_cues)
         if result.get('subtitle_warning'):
-            messagebox.showwarning('字幕未完成', '音频已生成，但中文字幕翻译失败，当前只提供原文字幕。可稍后重试。')
+            messagebox.showwarning('字幕未完成', '音频已生成，但双语字幕翻译失败，当前只提供原文字幕。可稍后重试。')
         self.save_button.configure(state='normal')
-        self.video_button.configure(state='normal')
+        self.video_button.configure(state='normal' if self.output_cues else 'disabled')
 
     def history(self):
         win = tk.Toplevel(self)
@@ -425,7 +433,10 @@ class App(tk.Tk):
 
     def export(self):
         if not self.output: return
-        try: suggested = next_name(BASE, '叙光音频', '.wav')
+        try:
+            from subtitle_quality import validate_cues
+            validate_cues(self.output_cues)
+            suggested = next_name(BASE, '叙光音频', '.wav')
         except Exception as e:
             messagebox.showerror('无法生成文件名', str(e));return
         dest = filedialog.asksaveasfilename(defaultextension='.wav', initialfile=suggested, filetypes=[('WAV', '*.wav')])

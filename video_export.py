@@ -44,6 +44,8 @@ def ass_time(seconds):
 
 
 def write_ass(path, cues, duration, font_path):
+    from subtitle_quality import validate_cues
+    validate_cues(cues)
     header = '''[Script Info]
 ScriptType: v4.00+
 PlayResX: 1920

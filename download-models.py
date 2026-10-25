@@ -5,6 +5,7 @@ from pathlib import Path
 MODELS = {
     'Qwen': ('Qwen/Qwen3-TTS-12Hz-0.6B-Base', 'Qwen3-TTS-12Hz-0.6B-Base'),
     'Ming': ('inclusionAI/Ming-3.0-tts-0.5b', 'Ming-3.0-tts-0.5b'),
+    'TranslationZH': ('Helsinki-NLP/opus-mt-zh-en', 'opus-mt-zh-en'),
     'Translation': ('Helsinki-NLP/opus-mt-en-zh', 'opus-mt-en-zh'),
 }
 
@@ -21,7 +22,7 @@ def main():
         if not args.list:
             from modelscope import snapshot_download
             kwargs = dict(model_id=model_id, local_dir=str(target))
-            if name == 'Translation':
+            if name.startswith('Translation'):
                 # The client uses PyTorch, not TensorFlow/Flax/Rust weights.
                 kwargs['ignore_patterns'] = ['flax_model.msgpack', 'tf_model.h5', 'rust_model.ot']
             snapshot_download(**kwargs)

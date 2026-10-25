@@ -205,6 +205,8 @@ class Runner:
         wav_info(reference)
         language = config.get('output_language', 'Chinese')
         if language not in ('Chinese', 'English'): raise ValueError('请选择中文或英文。')
+        from subtitle_quality import validate_language
+        validate_language(text, language)
         if engines == ['Qwen Python']:
             from qwen_quality import prepare_segments
             segments = prepare_segments(text)
@@ -307,16 +309,16 @@ class Runner:
                     text, cues = collect(dest / 'complete.wav')
                     save_sidecars(dest / 'complete.wav', text, cues)
                     subtitle_warning = None
-                    if job['config'].get('output_language') == 'English':
+                    if job['config'].get('output_language') == 'English' or job['config'].get('chinese_subtitles') == '中英双语字幕':
                         self.log('正在生成中英文字幕…')
                         write_json(dest / 'progress.json', dict(stage='finalizing',total=0,completed=0,text='正在生成中英文字幕…'))
                         try:
-                            self.run_process([job['config']['ming_python'], str(ROOT / 'translate_subtitles.py'), str(dest / 'complete.wav')],dest,
+                            self.run_process([job['config']['ming_python'], str(ROOT / 'translate_subtitles.py'), str(dest / 'complete.wav'), job['config'].get('output_language', 'Chinese')],dest,
                                 dict(os.environ,PYTHONUTF8='1',HF_HUB_OFFLINE='1'))
                         except Cancelled: raise
                         except Exception as error:
                             subtitle_warning = str(error)
-                            self.log('音频已保存，中文字幕未完成：' + str(error))
+                            self.log('音频已保存，双语字幕未完成：' + str(error))
                     metrics = read_json(dest / 'metrics.json') if (dest / 'metrics.json').exists() else {}
                     seconds = sum(wav_info(f)[0] for f in files)
                     metrics.update(subtitle_warning=subtitle_warning, audio_seconds=seconds, wall_seconds=time.perf_counter() - start,

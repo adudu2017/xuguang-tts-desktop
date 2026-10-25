@@ -9,6 +9,8 @@ def duration(p):
 def collect(wav):
     wav=Path(wav);folder=wav.parent
     job=json.loads((folder.parent/'job.json').read_text(encoding='utf-8'))
+    if job.get('config', {}).get('output_language', 'Chinese') == 'Chinese' and job.get('config', {}).get('chinese_subtitles') == '不生成字幕':
+        return job['text'], []
     cues=[];offset=0
     for i,text in enumerate(job['segments']):
         part=folder/f'{i:04}.wav'
@@ -27,6 +29,10 @@ def timestamp(t):
 
 def save_sidecars(wav,text,cues):
     p=Path(wav);p.with_suffix('.txt').write_text(text,encoding='utf-8-sig')
+    if not cues:
+        for ext in ('.cues.json', '.srt'):
+            p.with_suffix(ext).unlink(missing_ok=True)
+        return
     p.with_suffix('.cues.json').write_text(json.dumps(cues,ensure_ascii=False,indent=2),encoding='utf-8')
     blocks=[]
     for i,c in enumerate(cues,1):
