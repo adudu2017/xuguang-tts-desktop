@@ -10,6 +10,7 @@ from PIL import Image, ImageOps, ImageTk
 from modern_ui import Button, ComboBox
 from video_export import export_mp4, ExportCancelled
 from export_names import next_name
+from background_music import TRACKS, music_path
 
 
 class VideoDialog(tk.Toplevel):
@@ -19,7 +20,7 @@ class VideoDialog(tk.Toplevel):
         self.title('导出字幕视频（MP4）')
         x=max(0,parent.winfo_rootx()+(parent.winfo_width()-740)//2)
         y=max(20,parent.winfo_rooty()+(parent.winfo_height()-760)//2)
-        self.geometry(f'740x760+{x}+{y}'); self.resizable(False, False)
+        self.geometry(f'740x840+{x}+{y}'); self.resizable(False, False)
         self.configure(bg=T.BG); self.transient(parent)
         self.owner=parent; self.base=Path(base); self.audio=audio; self.cues=[dict(c) for c in cues]
         self.theme_choice=tk.StringVar(value=parent.config_values.get('video_theme','暖金书页'))
@@ -38,6 +39,13 @@ class VideoDialog(tk.Toplevel):
         self.choose_button=Button(row,text='选择图片',command=self.choose); self.choose_button.pack(side='left')
         self.reset_button=Button(row,text='恢复默认背景',command=self.reset); self.reset_button.pack(side='left',padx=10)
         ttk.Label(frame,text='图片保持比例，空余区域补深色。字幕显示在下方，预览仅展示背景。',foreground=T.MUTED).pack(anchor='w',pady=(12,8))
+        row=ttk.Frame(frame); row.pack(fill='x',pady=(8,8))
+        ttk.Label(row,text='背景音乐').pack(side='left')
+        saved_music=parent.config_values.get('video_music','关闭背景音乐')
+        self.music_choice=tk.StringVar(value=saved_music if saved_music in TRACKS else '关闭背景音乐')
+        self.music_combo=ComboBox(row,textvariable=self.music_choice,values=list(TRACKS),state='readonly',width=28)
+        self.music_combo.pack(side='left',padx=10)
+        ttk.Label(frame,text='人声优先 · 轻柔配乐 · 说话时自动降低音乐音量',foreground=T.MUTED).pack(anchor='w')
         self.status=tk.StringVar(value='选择保存位置，即可导出')
         ttk.Label(frame,textvariable=self.status,wraplength=680).pack(anchor='w',pady=(4,8))
         self.progress=ttk.Progressbar(frame,maximum=100); self.progress.pack(fill='x')
@@ -82,6 +90,13 @@ class VideoDialog(tk.Toplevel):
 
     def start(self):
         if self.is_running:return
+        try:
+            music_choice=self.music_choice.get()
+            music_path(self.base,music_choice)
+            self.owner.config_values['video_music']=music_choice
+            self.owner.persist()
+        except Exception as e:
+            messagebox.showerror('背景音乐不可用',str(e),parent=self);return
         try:suggested=next_name(self.base,'叙光字幕视频','.mp4')
         except Exception as e:
             messagebox.showerror('无法生成文件名',str(e),parent=self);return
@@ -93,10 +108,11 @@ class VideoDialog(tk.Toplevel):
         for button in (self.choose_button,self.reset_button,self.start_button):button.configure(state='disabled')
         self.cancel_button.configure(state='normal')
         self.theme_combo.configure(state='disabled')
+        self.music_combo.configure(state='disabled')
         background=self.background
         def work():
             try:
-                export_mp4(self.audio,self.cues,background,dest,self.base,self.cancel,lambda value:self.events.put(('progress',value)))
+                export_mp4(self.audio,self.cues,background,dest,self.base,self.cancel,lambda value:self.events.put(('progress',value)),music_choice=music_choice)
                 self.events.put(('done',dest))
             except ExportCancelled as e:self.events.put(('cancelled',str(e)))
             except Exception as e:self.events.put(('error',str(e)))
@@ -110,6 +126,7 @@ class VideoDialog(tk.Toplevel):
                     self.progress['value']=value*100;self.status.set(f'正在导出 · {value:.0%}');continue
                 self.is_running=False;self.cancel_button.configure(state='disabled')
                 self.theme_combo.configure(state='readonly')
+                self.music_combo.configure(state='readonly')
                 for button in (self.choose_button,self.reset_button,self.start_button):button.configure(state='normal')
                 if kind=='done':self.status.set('已保存：'+value)
                 elif kind=='cancelled':self.status.set(value)

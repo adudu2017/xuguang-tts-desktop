@@ -82,9 +82,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     Path(path).write_text(header + '\n'.join(events) + '\n', encoding='utf-8-sig')
 
 
-def export_mp4(audio, cues, background, target, base, cancel=None, progress=None):
+def export_mp4(audio, cues, background, target, base, cancel=None, progress=None, music_choice="关闭背景音乐"):
     cancel = cancel or threading.Event(); progress = progress or (lambda x: None)
     base, audio, target = Path(base), Path(audio).resolve(), Path(target).resolve()
+    from background_music import music_path, mix_filter
+    music = music_path(base, music_choice)
     ffmpeg = base / 'tools/ffmpeg.exe'
     if not ffmpeg.is_file():
         found = shutil.which('ffmpeg')
@@ -108,6 +110,10 @@ def export_mp4(audio, cues, background, target, base, cancel=None, progress=None
             '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'stillimage',
             '-crf', '23', '-threads', '2', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k',
             '-t', f'{duration:.6f}', '-movflags', '+faststart', '-progress', 'pipe:1', '-nostats', 'video.mp4']
+        if music:
+            position = command.index('-vf')
+            command[position:position] = ['-stream_loop', '-1', '-i', str(music), '-filter_complex', mix_filter(duration)]
+            command[command.index('1:a:0')] = '[mixed]'
         if cancel.is_set(): raise ExportCancelled('已取消导出')
         with open(folder / 'ffmpeg.log', 'w', encoding='utf-8') as log:
             process = subprocess.Popen(command, cwd=folder, stdout=subprocess.PIPE, stderr=log,
