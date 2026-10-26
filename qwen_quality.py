@@ -22,7 +22,17 @@ def prepare_segments(text, limit=60):
     text=re.sub(r'(?m)^\s*#{1,6}\s+','',text)
     text=text.replace('**','').replace('*','')
     chunks=[];current=''
-    for sentence in split_sentences(text):
+    sentences=split_sentences(text)
+    def short(sentence):
+        return bool(re.search(r'[.!?。！？][\"”’\']*$', sentence)) and len(re.sub(r'[^\w\u4e00-\u9fff]', '', sentence)) <= 6
+    for index, sentence in enumerate(sentences):
+        # Isolate clusters of very short utterances before normal paragraph packing.
+        risk=short(sentence) and ((index > 0 and short(sentences[index-1])) or
+                                  (index+1 < len(sentences) and short(sentences[index+1])))
+        if risk:
+            if current: chunks.append(current);current=''
+            chunks.append(sentence)
+            continue
         combined=current+' '+sentence
         units=len(combined.split())+len(re.findall(r'[\u4e00-\u9fff]',combined))
         if current and units>limit:
@@ -43,3 +53,28 @@ class GenerationGuard:
         if self.emit and elapsed-self.last>=1:
             self.last=elapsed;self.emit(self.steps,elapsed)
         return False
+
+
+def generate_with_recovery(text, synthesize, emit=None):
+    """Bounded sentence retry; never accept partial audio after watchdog failure."""
+    try:
+        audio, rate = synthesize(text)
+        return audio, rate, [dict(start=0., end=len(audio)/rate, text=text)]
+    except RuntimeError as error:
+        if 'QWEN_GENERATION_GUARD:' not in str(error): raise
+        if emit: emit('retry', str(error))
+    parts = split_sentences(text)
+    if len(parts) < 2:
+        raise RuntimeError('QWEN_GENERATION_GUARD: 单句生成异常，无法按完整句子拆分。请缩短该句后重试；已完成的分段仍保留。')
+    import numpy as np
+    chunks, cues, offset, rate = [], [], 0., None
+    for index, part in enumerate(parts):
+        if emit: emit('sentence', f'{index+1}/{len(parts)}')
+        audio, current_rate = synthesize(part)
+        if rate is not None and current_rate != rate: raise RuntimeError('重试音频采样率不一致')
+        rate = current_rate
+        if len(audio) == 0 or not np.isfinite(audio).all(): raise RuntimeError('重试生成无效音频')
+        seconds = len(audio)/rate
+        cues.append(dict(start=offset, end=offset+seconds, text=part))
+        chunks.append(audio); offset += seconds
+    return np.concatenate(chunks), rate, cues

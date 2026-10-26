@@ -85,7 +85,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 def export_mp4(audio, cues, background, target, base, cancel=None, progress=None, music_choice="关闭背景音乐"):
     cancel = cancel or threading.Event(); progress = progress or (lambda x: None)
     base, audio, target = Path(base), Path(audio).resolve(), Path(target).resolve()
-    from background_music import music_path, mix_filter
+    from background_music import music_path, mix_filter, shift_cues, MUSIC_INTRO_SECONDS
     music = music_path(base, music_choice)
     ffmpeg = base / 'tools/ffmpeg.exe'
     if not ffmpeg.is_file():
@@ -97,6 +97,9 @@ def export_mp4(audio, cues, background, target, base, cancel=None, progress=None
     if target == audio or target == Path(background).resolve(): raise ValueError('视频不能覆盖源音频或背景图片。')
     with wave.open(str(audio)) as src: duration = src.getnframes() / src.getframerate()
     if duration <= 0: raise ValueError('音频为空。')
+    if music:
+        duration += MUSIC_INTRO_SECONDS
+        cues = shift_cues(cues, MUSIC_INTRO_SECONDS)
     with tempfile.TemporaryDirectory(prefix='voicedesk-video-', dir=target.parent) as tmp:
         folder = Path(tmp)
         with Image.open(background) as src:

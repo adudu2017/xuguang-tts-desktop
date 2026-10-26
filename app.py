@@ -314,6 +314,19 @@ class App(tk.Tk):
         except Exception as e:
             messagebox.showerror('无法生成', str(e))
             return
+        self.launch_job(folder)
+
+    def resume_job(self, folder):
+        if self.busy:
+            messagebox.showinfo("任务运行中", "请等待当前任务完成或取消后再续跑。", parent=self);return
+        try:
+            job=core.read_json(Path(folder)/"job.json")
+            self.active_engine=job["engines"][0]
+            self.runner=core.Runner(DATA / "jobs", lambda text:self.events.put(("log",text)))
+            self.launch_job(Path(folder), resume=True)
+        except Exception as e: messagebox.showerror("无法续跑", str(e), parent=self)
+
+    def launch_job(self, folder, resume=False):
         self.active_folder = folder
         self.sentence_status.set('正在准备模型和参考音色…')
         self.busy = True
@@ -325,7 +338,7 @@ class App(tk.Tk):
         self.progress.start(15)
         def task():
             error = None
-            try: self.runner.run(folder)
+            try: self.runner.run(folder, resume=resume)
             except Exception as e: error = str(e)
             self.events.put(('done', (folder, error)))
         threading.Thread(target=task, daemon=True).start()
@@ -399,7 +412,7 @@ class App(tk.Tk):
     def history(self):
         win = tk.Toplevel(self)
         brand_window(win)
-        win.title('历史音频')
+        win.title('历史任务与音频')
         win.geometry('760x440')
         frame = ttk.Frame(win, padding=20)
         frame.pack(fill='both', expand=True)
@@ -408,9 +421,13 @@ class App(tk.Tk):
         tree.heading('text', text='内容'); tree.column('text', width=480)
         tree.pack(fill='both', expand=True)
         results = {}
+        tasks = {}
         for path in sorted((DATA / 'jobs').glob('*/job.json'), reverse=True):
             try:
                 job = core.read_json(path)
+                if job.get('status') != '完成':
+                    item=tree.insert('', 'end', values=(job['created'], f"[{job.get('status','待生成')}] "+job['text'][:55]))
+                    tasks[item]=path.parent
                 for engine, result in job.get('results', {}).items():
                     if not result.get('wav') or not Path(result['wav']).exists(): continue
                     label = 'Qwen3-TTS' if engine == 'Qwen Python' else engine
@@ -419,10 +436,15 @@ class App(tk.Tk):
             except (OSError, ValueError, KeyError): continue
         def choose(event=None):
             if tree.selection():
-                self.set_result(results[tree.selection()[0]])
+                item=tree.selection()[0]
+                if item in tasks:
+                    if self.busy:
+                        messagebox.showinfo('任务运行中','请先完成或取消当前任务。',parent=win);return
+                    self.resume_job(tasks[item])
+                else: self.set_result(results[item])
                 win.destroy()
         tree.bind('<Double-1>', choose)
-        Button(frame, text='使用所选音频', command=choose).pack(anchor='e', pady=(12, 0))
+        Button(frame, text='续跑任务 / 使用所选音频', command=choose).pack(anchor='e', pady=(12, 0))
 
     def play(self, path):
         if not path: return

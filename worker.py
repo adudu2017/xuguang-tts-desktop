@@ -129,18 +129,26 @@ def main(request_path, diagnostics=None):
                 diagnostics.touch(steps)
                 write_progress(out, dict(stage='generating', completed=i, total=len(r['segments']), text=text,
                     generated_steps=steps, elapsed_seconds=seconds))
-            guard=GenerationGuard(text,heartbeat)
-            diagnostics.event('guard_limits',timeout_seconds=guard.timeout,max_frames=guard.max_frames)
-            original_talker_generate=model.model.talker.generate
-            def guarded_generate(*args, **kwargs):
-                kwargs['stopping_criteria']=StoppingCriteriaList([guard])
-                return original_talker_generate(*args, **kwargs)
-            model.model.talker.generate=guarded_generate
-            try:
-                waves, sr = model.generate_voice_clone(text=text, language=language, voice_clone_prompt=prompt)
-            finally:
-                model.model.talker.generate=original_talker_generate
-            audio = waves[0]
+            from qwen_quality import generate_with_recovery
+            def synthesize_qwen(part):
+                guard=GenerationGuard(part,heartbeat)
+                diagnostics.event('guard_limits',timeout_seconds=guard.timeout,max_frames=guard.max_frames)
+                original_talker_generate=model.model.talker.generate
+                def guarded_generate(*args, **kwargs):
+                    kwargs['stopping_criteria']=StoppingCriteriaList([guard])
+                    return original_talker_generate(*args, **kwargs)
+                model.model.talker.generate=guarded_generate
+                try:
+                    waves, rate = model.generate_voice_clone(text=part, language=language, voice_clone_prompt=prompt)
+                    return waves[0], rate
+                finally:
+                    model.model.talker.generate=original_talker_generate
+            def recovery_event(kind, detail):
+                diagnostics.event('generation_recovery',kind=kind,detail=detail)
+                print(f'Qwen recovery {kind}: {detail}', flush=True)
+                write_progress(out, dict(stage='generating', completed=i, total=len(r['segments']),
+                    text=text, recovery=kind, recovery_detail=detail))
+            audio, sr, qwen_cues = generate_with_recovery(text, synthesize_qwen, recovery_event)
         else:
             audio = model.synthesize(task='TTS', text=text, language_id=language,
                         prompt_wav_path=r['reference'], prompt_text=r['transcript'],
@@ -164,6 +172,8 @@ def main(request_path, diagnostics=None):
         wav_info(path)
         if r['engine'] == 'Ming 0.5B':
             write_json(out / f'{i:04}.cues.json', cue_state['rows'])
+        if r['engine'] == 'Qwen Python':
+            write_json(out / f'{i:04}.cues.json', qwen_cues)
         saved[str(i)] = dict(sha256=digest(path), generation_seconds=elapsed, raw_peak=peak, pcm_gain=gain)
         write_json(out / 'segments.json', saved)
         if diagnostics:

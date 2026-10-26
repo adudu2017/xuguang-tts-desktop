@@ -277,6 +277,7 @@ class Runner:
                                 wav_info(path); valid[key] = value
                         except (OSError, ValueError, wave.Error):
                             pass
+                if resume: self.log(f'{engine}：校验通过 {len(valid)} 段，将复用；待生成 {len(job["segments"])-len(valid)} 段')
                 write_json(dest / 'segments.json', valid)
                 request = dict(engine=engine, config=job['config'], segments=job['segments'],
                                reference=str(folder / 'reference.wav'), transcript=job['transcript'],

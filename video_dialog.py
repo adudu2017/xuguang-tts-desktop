@@ -42,10 +42,11 @@ class VideoDialog(tk.Toplevel):
         row=ttk.Frame(frame); row.pack(fill='x',pady=(8,8))
         ttk.Label(row,text='背景音乐').pack(side='left')
         saved_music=parent.config_values.get('video_music','关闭背景音乐')
+        if saved_music == '背景音乐 1 · 1989154383': saved_music = '背景音乐 1'
         self.music_choice=tk.StringVar(value=saved_music if saved_music in TRACKS else '关闭背景音乐')
         self.music_combo=ComboBox(row,textvariable=self.music_choice,values=list(TRACKS),state='readonly',width=28)
         self.music_combo.pack(side='left',padx=10)
-        ttk.Label(frame,text='人声优先 · 轻柔配乐 · 说话时自动降低音乐音量',foreground=T.MUTED).pack(anchor='w')
+        ttk.Label(frame,text='音乐先播放 2 秒 · 柔和人声 · 说话时轻度压低配乐',foreground=T.MUTED).pack(anchor='w')
         self.status=tk.StringVar(value='选择保存位置，即可导出')
         ttk.Label(frame,textvariable=self.status,wraplength=680).pack(anchor='w',pady=(4,8))
         self.progress=ttk.Progressbar(frame,maximum=100); self.progress.pack(fill='x')
