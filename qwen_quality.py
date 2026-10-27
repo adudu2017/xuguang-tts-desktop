@@ -7,39 +7,47 @@ def split_sentences(text):
     protected=re.sub(r'\b(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|etc)\.',lambda m:m.group().replace('.', '\ue000'),text,flags=re.I)
     protected=re.sub(r'(?<=\d)\.(?=\d)','\ue000',protected)
     protected=re.sub(r'\b[A-Z]\.(?=\s*[A-Z]\.)',lambda m:m.group().replace('.','\ue000'),protected)
-    parts=re.split(r'(?<=[.!?。！？])([\"”’\']*)(?:\s+|(?=[\u4e00-\u9fff]))|\n+',protected)
-    result=[]
-    for part in parts:
-        if not part:continue
-        part=part.replace('\ue000','.').strip()
-        if not part:continue
-        if all(c in '\"”’\'' for c in part) and result:result[-1]+=part
-        else:result.append(part)
+    # Quotes are indivisible units. Apostrophes inside English words are not quotes.
+    pairs={'“':'”','‘':'’','「':'」','『':'』'}
+    result=[];buffer='';stack=[]
+    for index,char in enumerate(protected):
+        buffer+=char
+        if char in pairs:stack.append(pairs[char])
+        elif stack and char==stack[-1]:stack.pop()
+        elif char=='"':stack.append('"')
+        next_char=protected[index+1:index+2]
+        boundary=char in '。！？!?\n' or (char=='.' and (not next_char or next_char.isspace()))
+        closed=char in '”’」』"' and bool(re.search(r'[.!?。！？][”’」』"]*$',buffer))
+        if not stack and (boundary or closed):
+            if buffer.strip():result.append(buffer.replace('\ue000','.').strip())
+            buffer=''
+    if buffer.strip():result.append(buffer.replace('\ue000','.').strip())
     return result
+
+
+def text_units(text):
+    return len(re.findall(r'[\u3400-\u9fff]|[A-Za-z0-9]+',text))
+
+
+def pack_sentences(sentences, limit=60):
+    """Soft length limit: do not create tiny isolated utterances or split quotes."""
+    chunks=[];current=''
+    for sentence in sentences:
+        combined=(current+' '+sentence).strip()
+        if current and text_units(combined)>limit and text_units(current)>=8:
+            chunks.append(current);current=''
+        current=(current+' '+sentence).strip()
+    if current:
+        if chunks and text_units(current)<8:chunks[-1]+=' '+current
+        else:chunks.append(current)
+    return chunks
+
 
 def prepare_segments(text, limit=60):
     text=re.sub(r'(?m)^\s*(?:---+|___+|\*\*\*+)\s*$','',text)
     text=re.sub(r'(?m)^\s*#{1,6}\s+','',text)
     text=text.replace('**','').replace('*','')
-    chunks=[];current=''
-    sentences=split_sentences(text)
-    def short(sentence):
-        return bool(re.search(r'[.!?。！？][\"”’\']*$', sentence)) and len(re.sub(r'[^\w\u4e00-\u9fff]', '', sentence)) <= 6
-    for index, sentence in enumerate(sentences):
-        # Isolate clusters of very short utterances before normal paragraph packing.
-        risk=short(sentence) and ((index > 0 and short(sentences[index-1])) or
-                                  (index+1 < len(sentences) and short(sentences[index+1])))
-        if risk:
-            if current: chunks.append(current);current=''
-            chunks.append(sentence)
-            continue
-        combined=current+' '+sentence
-        units=len(combined.split())+len(re.findall(r'[\u4e00-\u9fff]',combined))
-        if current and units>limit:
-            chunks.append(current);current=''
-        current=(current+' '+sentence).strip()
-    if current:chunks.append(current)
-    return chunks
+    return pack_sentences(split_sentences(text),limit)
 
 class GenerationGuard:
     def __init__(self,text,emit=None,timeout=None,max_frames=None):
@@ -63,9 +71,9 @@ def generate_with_recovery(text, synthesize, emit=None):
     except RuntimeError as error:
         if 'QWEN_GENERATION_GUARD:' not in str(error): raise
         if emit: emit('retry', str(error))
-    parts = split_sentences(text)
-    if len(parts) < 2:
-        raise RuntimeError('QWEN_GENERATION_GUARD: 单句生成异常，无法按完整句子拆分。请缩短该句后重试；已完成的分段仍保留。')
+    # One bounded retry even for an indivisible quote/single sentence.
+    # The model's RNG advances naturally; do not reset the seed and replay the failure.
+    parts = pack_sentences(split_sentences(text),limit=20)
     import numpy as np
     chunks, cues, offset, rate = [], [], 0., None
     for index, part in enumerate(parts):

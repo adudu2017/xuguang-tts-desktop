@@ -97,9 +97,15 @@ def apply(root, name):
     root.option_add('*selectBackground',GOLD_LIGHT);root.option_add('*selectForeground',INK)
 
 def brand_window(window, default=False):
+    if not default and window.master is not None:
+        window.withdraw()
     base = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
     window.configure(bg=BG)
     icon = base / 'assets/xuguang.ico'
     if icon.exists():
         if default: window.iconbitmap(default=str(icon))
         window.iconbitmap(str(icon))
+
+    if not default and window.master is not None:
+        from window_position import show_centered
+        window.after(0, lambda: show_centered(window) if window.winfo_exists() else None)

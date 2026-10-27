@@ -25,9 +25,9 @@ class QualityTests(unittest.TestCase):
    if len(calls)==1:raise RuntimeError('QWEN_GENERATION_GUARD: timeout')
    return np.ones(100),100
   audio,rate,cues=generate_with_recovery('Hello. Next.',synth)
-  self.assertEqual(calls,['Hello. Next.','Hello.','Next.'])
-  self.assertEqual(len(audio),200)
-  self.assertEqual(cues[1]['start'],1)
+  self.assertEqual(calls,['Hello. Next.','Hello. Next.'])
+  self.assertEqual(len(audio),100)
+  self.assertEqual(cues[0]['end'],1)
  def test_retry_failure_propagates_without_partial_result(self):
   from qwen_quality import generate_with_recovery
   calls=[]
@@ -43,8 +43,28 @@ class QualityTests(unittest.TestCase):
  def test_risky_short_cluster_isolated_without_text_loss(self):
   text='她慢慢走进安静的房间。咚。咚。咚。门外传来了一个熟悉的声音。'
   segments=prepare_segments(text)
-  self.assertEqual(sum(p=='咚。' for p in segments),3)
-  self.assertEqual(''.join(segments),text)
+  self.assertFalse(any(p=='咚。' for p in segments))
+  self.assertEqual(re.sub(r'\s','',''.join(segments)),text)
  def test_normal_sentences_still_pack(self):
   self.assertEqual(len(prepare_segments('The little rabbit found a seed. She planted it in her garden.')),1)
+ def test_complete_dialogue_is_indivisible(self):
+  text='“有。我就是。” “一号！它的水最多！”'
+  self.assertEqual(split_sentences(text),['“有。我就是。”','“一号！它的水最多！”'])
+  for part in prepare_segments(text,8):self.assertEqual(part.count('“'),part.count('”'))
+ def test_nested_quotes_and_english_apostrophes(self):
+  text="“他说‘为什么？’我不知道。” Next. \"I don't know. Do you?\""
+  parts=split_sentences(text)
+  self.assertEqual(len(parts),3)
+  self.assertEqual(re.sub(r'\s','',''.join(parts)),re.sub(r'\s','',text))
+ def test_recovery_does_not_fragment_dialogue(self):
+  import numpy as np
+  from qwen_quality import generate_with_recovery
+  calls=[]
+  def synth(text):
+   calls.append(text)
+   if len(calls)==1:raise RuntimeError('QWEN_GENERATION_GUARD: timeout')
+   return np.ones(100),100
+  text='“有。我就是。”'
+  generate_with_recovery(text,synth)
+  self.assertEqual(calls,[text,text])
 if __name__=='__main__':unittest.main()

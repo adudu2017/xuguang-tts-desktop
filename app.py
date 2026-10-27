@@ -18,6 +18,8 @@ from modern_ui import Button, ComboBox, TextBox, Slider
 from video_dialog import VideoDialog
 from export_names import next_name
 from appearance_dialog import AppearanceDialog
+from rename_dialog import RenameDialog
+from confirm_dialog import confirm_delete
 
 BASE = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
 core.ROOT = BASE
@@ -82,7 +84,9 @@ class App(tk.Tk):
         self.status = tk.StringVar(value='准备就绪')
         self.result_label = tk.StringVar(value='生成后，即可在这里试听与保存')
         self.count = tk.StringVar(value='0 字')
-        shell = ttk.Frame(self, padding=(32, 22))
+        self.footer=ttk.Label(self, text='本地合成  ·  录音音色可在两个模型间共用', foreground=T.MUTED, font=('Microsoft YaHei UI', 9))
+        self.footer.pack(side='bottom', fill='x', padx=32, pady=(8,16))
+        shell = ttk.Frame(self, padding=(32, 16))
         shell.pack(fill='both', expand=True)
         header = ttk.Frame(shell)
         header.pack(fill='x', pady=(0, 20))
@@ -150,7 +154,7 @@ class App(tk.Tk):
         self.video_button.pack(side='right', padx=8)
         self.player = AudioPlayer(shell)
         self.player.pack(fill='both', expand=True, pady=(10,0))
-        ttk.Label(shell, text='本地合成  ·  录音音色可在两个模型间共用', foreground=T.MUTED, font=('Microsoft YaHei UI', 9)).pack(anchor='w', pady=(24, 0))
+
         self.after(150, self.poll)
         self.protocol('WM_DELETE_WINDOW', self.close)
 
@@ -204,7 +208,7 @@ class App(tk.Tk):
         target=folder.resolve()
         if target.parent!=root or folder.is_symlink() or folder.is_junction():
             messagebox.showerror('删除失败','音色目录不在软件音色库中，无法删除。',parent=parent);return
-        if not messagebox.askyesno('删除音色',f'确定永久删除音色“{voice["name"]}”及其参考录音吗？\n此操作无法撤销。已生成的音频、字幕和历史任务会保留。',parent=parent,default='no'):return
+        if not confirm_delete(parent, voice['name']):return
         try:
             winsound.PlaySound(None,0)
             shutil.rmtree(target)
@@ -224,15 +228,12 @@ class App(tk.Tk):
         if not pair:
             messagebox.showinfo('重命名','请先选择一个已保存的音色。',parent=parent or self);return
         folder,voice=pair
-        name=simpledialog.askstring('重命名音色','音色名称',initialvalue=voice['name'],parent=parent or self)
-        if name is None:return
-        name=name.strip()
-        if not name or name=='自定义录音' or any(v['name']==name and f!=folder for f,v in self.voices.values()):
-            messagebox.showerror('名称不可用','请输入非空且不重复的音色名称。',parent=parent or self);return
-        try:
-            voice=dict(voice,name=name);core.write_json(folder/'voice.json',voice)
+        def save_name(name):
+            if not name or name=='自定义录音' or any(v['name']==name and f!=folder for f,v in self.voices.values()):
+                raise ValueError('请输入非空且不重复的音色名称。')
+            core.write_json(folder/'voice.json',dict(voice,name=name))
             self.refresh_voices(folder.name);self.persist()
-        except OSError as error:messagebox.showerror('重命名失败',str(error),parent=parent or self)
+        RenameDialog(parent or self, voice['name'], save_name)
 
     def make_voice(self):
         if self.voice_window and self.voice_window.winfo_exists():
@@ -259,21 +260,21 @@ class App(tk.Tk):
         self.text.insert('1.0', ENGLISH_SAMPLE if self.language.get() == '英文' else SAMPLE_TEXT)
 
     def choose_reference(self):
-        path = filedialog.askopenfilename(filetypes=[('WAV 录音', '*.wav')])
+        path = filedialog.askopenfilename(filetypes=[('WAV 录音', '*.wav')], parent=self)
         if path:
             self.voice_choice.set('自定义录音')
             self.reference.set(path)
             self.transcript.delete('1.0', 'end')
 
     def import_text(self):
-        path = filedialog.askopenfilename(filetypes=[('文本', '*.txt')])
+        path = filedialog.askopenfilename(filetypes=[('文本', '*.txt')], parent=self)
         if path:
             try:
                 content = Path(path).read_text(encoding='utf-8-sig')
                 self.text.delete('1.0', 'end')
                 self.text.insert('1.0', content)
             except Exception as e:
-                messagebox.showerror('导入失败', str(e))
+                messagebox.showerror('导入失败', str(e), parent=self)
 
     def settings(self):
         win = tk.Toplevel(self)
@@ -312,7 +313,7 @@ class App(tk.Tk):
             self.runner = core.Runner(DATA / 'jobs', lambda text: self.events.put(('log', text)))
             folder = self.runner.create(self.text.get('1.0', 'end').strip(), self.reference.get(), self.transcript.get('1.0', 'end').strip(), [self.active_engine], self.config_values)
         except Exception as e:
-            messagebox.showerror('无法生成', str(e))
+            messagebox.showerror('无法生成', str(e), parent=self)
             return
         self.launch_job(folder)
 
@@ -392,7 +393,7 @@ class App(tk.Tk):
                     self.status.set('已取消' if job.get('status') == '已中断' else '生成失败')
                     self.sentence_status.set('任务已停止；已完成句数不代表音频已全部保存。')
                     if job.get('status') != '已中断':
-                        messagebox.showerror('生成失败', error or result.get('error') or '请查看任务文件夹中的日志。')
+                        messagebox.showerror('生成失败', error or result.get('error') or '请查看任务文件夹中的日志。', parent=self)
         except queue.Empty: pass
         self.after(150, self.poll)
 
@@ -405,7 +406,7 @@ class App(tk.Tk):
             self.output_text, self.output_cues = '', []
         self.player.load(self.output, self.output_text, self.output_cues)
         if result.get('subtitle_warning'):
-            messagebox.showwarning('字幕未完成', '音频已生成，但双语字幕翻译失败，当前只提供原文字幕。可稍后重试。')
+            messagebox.showwarning('字幕未完成', '音频已生成，但双语字幕翻译失败，当前只提供原文字幕。可稍后重试。', parent=self)
         self.save_button.configure(state='normal')
         self.video_button.configure(state='normal' if self.output_cues else 'disabled')
 
@@ -451,7 +452,7 @@ class App(tk.Tk):
         try:
             core.wav_info(path)
             winsound.PlaySound(str(path), winsound.SND_FILENAME | winsound.SND_ASYNC)
-        except Exception as e: messagebox.showerror('无法播放', str(e))
+        except Exception as e: messagebox.showerror('无法播放', str(e), parent=self)
 
     def export(self):
         if not self.output: return
@@ -460,25 +461,25 @@ class App(tk.Tk):
             validate_cues(self.output_cues)
             suggested = next_name(BASE, '叙光音频', '.wav')
         except Exception as e:
-            messagebox.showerror('无法生成文件名', str(e));return
-        dest = filedialog.asksaveasfilename(defaultextension='.wav', initialfile=suggested, filetypes=[('WAV', '*.wav')])
+            messagebox.showerror('无法生成文件名', str(e), parent=self);return
+        dest = filedialog.asksaveasfilename(defaultextension='.wav', initialfile=suggested, filetypes=[('WAV', '*.wav')], parent=self)
         if dest:
             try:
                 target = Path(dest)
                 existing = [target.with_suffix(ext).name for ext in ('.txt','.srt','.cues.json') if target.with_suffix(ext).exists()]
-                if existing and not messagebox.askyesno('覆盖附属文件', '将覆盖同名文字或字幕文件：\n'+'\n'.join(existing)): return
+                if existing and not messagebox.askyesno('覆盖附属文件', '将覆盖同名文字或字幕文件：\n'+'\n'.join(existing), parent=self): return
                 if target.resolve() != Path(self.output).resolve(): shutil.copy2(self.output, target)
                 transcript_tools.save_sidecars(target, self.output_text, self.output_cues)
-            except Exception as e: messagebox.showerror('保存失败', str(e))
+            except Exception as e: messagebox.showerror('保存失败', str(e), parent=self)
 
     def export_video(self):
         if not self.output:return
         if self.video_window and self.video_window.winfo_exists():
             self.video_window.lift();return
         if not self.output_cues:
-            messagebox.showerror('没有字幕','当前音频缺少时间轴字幕，请先生成带字幕的音频。');return
+            messagebox.showerror('没有字幕','当前音频缺少时间轴字幕，请先生成带字幕的音频。', parent=self);return
         try:self.video_window=VideoDialog(self,BASE,self.output,self.output_cues)
-        except Exception as e:messagebox.showerror('无法导出视频',str(e))
+        except Exception as e:messagebox.showerror('无法导出视频',str(e), parent=self)
 
     def close(self):
         if self.video_window and self.video_window.winfo_exists():
